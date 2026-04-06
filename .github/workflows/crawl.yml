@@ -1,0 +1,35 @@
+name: 591 租屋爬蟲
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: 下載已發送記錄
+        uses: actions/cache@v4
+        with:
+          path: sent_records.json
+          key: sent-records-${{ github.run_id }}
+          restore-keys: |
+            sent-records-
+
+      - name: 執行爬蟲
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node index.js --once
