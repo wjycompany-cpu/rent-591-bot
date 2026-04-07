@@ -15,18 +15,21 @@ module.exports = {
 
   // === 591 搜尋條件 ===
   search: {
-    // 新北市 = 3
-    region: 3,
+    // 新北市 = 3,桃園市 = 6
+    region: 6,
     // 區域代碼（可多選，用逗號分隔）
     // 林口區 = 46, 淡水區 = 50, 新莊區 = 44
     // 其他常用：板橋 = 26, 三重 = 43, 中和 = 38, 永和 = 37, 新店 = 34
-    section: '46,50',
+    // 其他縣市常用：龜山區 = 74
+    section: '74',
     // 租金範圍（元）
-    rentPrice: '10000,25000',
+    rentPrice: '10000,22000',
     // 物件類型：0=不限, 1=整層住家, 2=獨立套房, 3=分租套房, 4=雅房
     kind: 1,
     // 其他條件
     other: 'cook,cartplace',
+    // 關鍵字搜尋
+    keywords: 'A7',
     // 排序：posttime=最新刊登, money=租金, area=坪數
     order: 'posttime',
     orderType: 'desc',

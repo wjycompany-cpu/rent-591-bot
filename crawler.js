@@ -11,7 +11,7 @@ const config = require('./config');
 async function searchRentals() {
   console.log('[爬蟲] 開始抓取 591 租屋資料（Nuxt SSR 模式）...');
 
-  const { region, section, rentPrice, kind, other, order, orderType } = config.search;
+  const { region, section, rentPrice, kind, other, keywords, order, orderType } = config.search;
 
   // 組合 591 列表頁網址（跟你在瀏覽器看到的一樣）
   const params = new URLSearchParams();
@@ -20,6 +20,7 @@ async function searchRentals() {
   if (kind) params.append('kind', String(kind));
   if (rentPrice) params.append('rentprice', rentPrice);
   if (other) params.append('other', other);
+  if (keywords) params.append('keywords', keywords);
   if (order) params.append('order', order);
   if (orderType) params.append('orderType', orderType);
 
