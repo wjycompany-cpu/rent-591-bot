@@ -11,20 +11,21 @@ const config = require('./config');
 async function searchRentals() {
   console.log('[爬蟲] 開始抓取 591 租屋資料（Nuxt SSR 模式）...');
 
-  const { region, section, rentPrice, kind, other, keywords, order, orderType } = config.search;
+  const { region, section, rentPrice, kind, layout, other, keywords, order, orderType } = config.search;
 
   // 組合 591 列表頁網址（跟你在瀏覽器看到的一樣）
   const params = new URLSearchParams();
   params.append('region', String(region));
   if (section) params.append('section', section);
   if (kind) params.append('kind', String(kind));
+  if (layout) params.append('layout', layout);
   if (rentPrice) params.append('rentprice', rentPrice);
   if (other) params.append('other', other);
   if (keywords) params.append('keywords', keywords);
   if (order) params.append('order', order);
   if (orderType) params.append('orderType', orderType);
 
-  const url = `https://rent.591.com.tw/list?${params.toString()}`;
+  const url = `https://rent.591.com.tw/list?${params.toString()}`.replace(/%2C/g, ',');
   console.log(`[爬蟲] 抓取網址: ${url}`);
 
   try {
