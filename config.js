@@ -23,7 +23,7 @@ module.exports = {
     // 桃園常用：龜山區 = 74, 蘆竹區 = 79, 
     section: '74',
     // 租金範圍（元）
-    rentPrice: '10000,20000',
+    rentPrice: '10000,22000',
     // 物件類型：0=不限, 1=整層住家, 2=獨立套房, 3=分租套房, 4=雅房
     kind: 1,
     // 格局：2=2房, 3=3房（可多選，用逗號分隔）
@@ -31,7 +31,7 @@ module.exports = {
     // 特色：可開伙 = cook,車位 = cartplace,可養寵物 = pet
     other: 'cook,cartplace',
     // 關鍵字搜尋
-    keywords: 'A7',
+    keywords: '',
     // 排序：posttime=最新刊登, money=租金, area=坪數
     order: 'posttime',
     orderType: 'desc',
