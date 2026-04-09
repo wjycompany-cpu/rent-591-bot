@@ -61,6 +61,14 @@ async function searchRentals() {
 
   } catch (error) {
     console.error('[爬蟲] 抓取失敗:', error.message);
+    console.error('[爬蟲] error.name:', error.name);
+    console.error('[爬蟲] error.code:', error.code);
+    if (error.cause) {
+      console.error('[爬蟲] error.cause:', error.cause);
+      console.error('[爬蟲] cause.message:', error.cause.message);
+      console.error('[爬蟲] cause.code:', error.cause.code);
+    }
+    console.error('[爬蟲] stack:', error.stack);
     return [];
   }
 }
