@@ -92,7 +92,9 @@ function formatRow(item, timestamp) {
     tags,
     item.url || '',
     // 以下來自詳情頁；沒抓到就留空，不影響前 13 欄
-    d.effectiveRent ? `${d.effectiveRent}${d.effectiveRentComplete ? '' : '↑'}` : '',
+    // 寫成純數字，讓試算表能正確排序與做數值比較。
+    // 「車位另計但未揭露金額」的資訊由「租金含」與「車位型式」兩欄即可判讀。
+    d.effectiveRent || '',
     d.manageFeeText || '',
     d.priceContain || '',
     d.carportType || '',
