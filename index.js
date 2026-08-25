@@ -9,6 +9,7 @@ const { searchRentals } = require('./crawler');
 const { initBot, sendListings, sendStatus } = require('./notifier');
 const { appendListings } = require('./sheets');
 const { filterDuplicates, remember } = require('./dedupe');
+const { enrichListings } = require('./detail');
 
 // === 已發送記錄管理 ===
 
@@ -68,6 +69,15 @@ async function run() {
     if (newListings.length === 0) {
       console.log('[主程式] 沒有新物件，跳過通知');
       return;
+    }
+
+    // 2.5 補上詳情頁資料（管理費、車位、出租方等）
+    // 只對去重後真正要推播的物件抓取，日常多為 0~5 筆。
+    // 這是附加功能：整段失敗也只是少了幾個欄位，不影響推播。
+    try {
+      await enrichListings(newListings);
+    } catch (error) {
+      console.error(`[主程式] 詳情頁補齊失敗（不影響推播）: ${error.message}`);
     }
 
     // 3. 發送通知

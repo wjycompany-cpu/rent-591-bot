@@ -321,4 +321,5 @@ function getRegionName(region) {
   return map[region] || '';
 }
 
-module.exports = { searchRentals };
+// fetchWithRetry 與 extractNuxtData 供 detail.js 共用，避免重複實作重試與解析邏輯
+module.exports = { searchRentals, fetchWithRetry, extractNuxtData };

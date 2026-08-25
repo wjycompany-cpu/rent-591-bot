@@ -48,6 +48,21 @@ function formatListing(listing) {
   if (listing.floor) lines.push(`🔼 樓層：${escapeMarkdown(listing.floor)}`);
   if (tags) lines.push(`🏷 標籤：${escapeMarkdown(tags)}`);
 
+  // 詳情頁資料（抓取失敗時不存在，此處自動略過）
+  // 只列會改變「要不要點進去」的資訊，其餘細節留給試算表
+  const d = listing.detail;
+  if (d) {
+    lines.push('');
+    if (d.effectiveRent && d.effectiveRent !== d.rentPrice) {
+      const extra = d.effectiveRent - d.rentPrice;
+      const fmt = (n) => n.toLocaleString('zh-TW');
+      lines.push(`⚠️ *實質月租：${escapeMarkdown(fmt(d.effectiveRent))} 元*（另計 ${escapeMarkdown(fmt(extra))}${d.effectiveRentComplete ? '' : '↑'}）`);
+    }
+    if (d.manageFeeText) lines.push(`💵 管理費：${escapeMarkdown(d.manageFeeText)}`);
+    if (d.role) lines.push(`👤 ${escapeMarkdown(d.role)}${d.chargeText ? `，${escapeMarkdown(d.chargeText)}` : ''}`);
+    if (d.pet) lines.push(`🐾 ${escapeMarkdown(d.pet)}`);
+  }
+
   lines.push('');
   lines.push(`🔗 [查看詳情](${listing.url})`);
 
@@ -96,6 +111,11 @@ async function sendListing(listing) {
         listing.area ? `📐 坪數：${listing.area} 坪` : '',
         listing.kind ? `🏷 類型：${listing.kind}` : '',
         listing.floor ? `🔼 樓層：${listing.floor}` : '',
+        listing.detail?.effectiveRent && listing.detail.effectiveRent !== listing.detail.rentPrice
+          ? `⚠️ 實質月租：${listing.detail.effectiveRent.toLocaleString('zh-TW')} 元` : '',
+        listing.detail?.manageFeeText ? `💵 管理費：${listing.detail.manageFeeText}` : '',
+        listing.detail?.role ? `👤 ${listing.detail.role}${listing.detail.chargeText ? '，' + listing.detail.chargeText : ''}` : '',
+        listing.detail?.pet ? `🐾 ${listing.detail.pet}` : '',
         '',
         `🔗 ${listing.url}`,
       ].filter(Boolean).join('\n');
@@ -143,4 +163,5 @@ async function sendStatus(message) {
   }
 }
 
-module.exports = { initBot, sendListing, sendListings, sendStatus };
+// formatListing 一併匯出，讓訊息格式可被測試而不需真的發送
+module.exports = { initBot, sendListing, sendListings, sendStatus, formatListing };

@@ -10,11 +10,16 @@ const config = require('./config');
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-// 表頭；順序必須與 formatRow() 一致
+// 表頭；順序必須與 formatRow() 一致。
+// 第 14 欄之後來自詳情頁，抓取失敗時留空。
 const HEADER = [
   '抓取時間', '物件ID', '標題', '租金', '坪數', '類型',
   '樓層', '格局', '地區', '地址', '社區', '標籤', '連結',
+  '實質月租', '管理費', '租金含', '車位型式', '出租方', '服務費', '押金', '寵物', '最短租期',
 ];
+
+// 由欄數推算最後一欄的字母，避免日後增欄時漏改範圍
+const LAST_COL = String.fromCharCode(64 + HEADER.length);
 
 let cachedClient = null;
 
@@ -71,6 +76,7 @@ function nowString() {
  */
 function formatRow(item, timestamp) {
   const tags = Array.isArray(item.tags) ? item.tags.join(' | ') : '';
+  const d = item.detail || {};
   return [
     timestamp,
     String(item.id ?? ''),
@@ -85,6 +91,16 @@ function formatRow(item, timestamp) {
     item.community || '',
     tags,
     item.url || '',
+    // 以下來自詳情頁；沒抓到就留空，不影響前 13 欄
+    d.effectiveRent ? `${d.effectiveRent}${d.effectiveRentComplete ? '' : '↑'}` : '',
+    d.manageFeeText || '',
+    d.priceContain || '',
+    d.carportType || '',
+    d.role || '',
+    d.chargeText || d.serviceFee || '',
+    d.deposit || '',
+    d.pet || '',
+    d.minLease || '',
   ];
 }
 
@@ -92,20 +108,22 @@ function formatRow(item, timestamp) {
  * 表頭不存在就補上（只在第一次執行時真的會寫入）
  */
 async function ensureHeader(client, sheetName) {
-  const range = encodeURIComponent(`${sheetName}!A1:M1`);
+  const range = encodeURIComponent(`${sheetName}!A1:${LAST_COL}1`);
   const res = await client.request({
     url: `${API_BASE}/${config.sheets.sheetId}/values/${range}`,
   });
 
-  const existing = res.data.values?.[0];
-  if (existing && existing.length > 0) return;
+  // 既有表頭欄位變少時也要補寫，否則新增欄位會沒有標題
+  const existing = res.data.values?.[0] || [];
+  const upToDate = existing.length === HEADER.length && HEADER.every((h, i) => existing[i] === h);
+  if (upToDate) return;
 
   await client.request({
     url: `${API_BASE}/${config.sheets.sheetId}/values/${range}?valueInputOption=RAW`,
     method: 'PUT',
     data: { values: [HEADER] },
   });
-  console.log('[Sheets] 已建立表頭');
+  console.log(existing.length ? '[Sheets] 已更新表頭（欄位有變動）' : '[Sheets] 已建立表頭');
 }
 
 /**
@@ -128,7 +146,7 @@ async function appendListings(listings) {
     const timestamp = nowString();
     const rows = listings.map((item) => formatRow(item, timestamp));
 
-    const range = encodeURIComponent(`${sheetName}!A:M`);
+    const range = encodeURIComponent(`${sheetName}!A:${LAST_COL}`);
     await client.request({
       url:
         `${API_BASE}/${config.sheets.sheetId}/values/${range}:append` +
