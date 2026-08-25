@@ -5,6 +5,56 @@
 const vm = require('vm');
 const config = require('./config');
 
+// 重試設定：591 會間歇性以 403 擋掉資料中心 IP，隔幾秒再試通常就過了
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAYS = [3000, 8000]; // 第 1、2 次失敗後各等多久（指數退避）
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 帶重試的抓取；回傳 HTML 字串。
+ * 只對「有機會自己好」的狀況重試（403 / 429 / 5xx / 連線錯誤），
+ * 4xx 的其他狀況視為永久性錯誤，直接放棄不浪費請求。
+ * 重試用盡會 throw，並標記 isFetchFailure 讓上層知道這是連線層失敗。
+ */
+async function fetchWithRetry(url, headers) {
+  let lastError;
+  let attempts = 0;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    attempts = attempt;
+    try {
+      const response = await fetch(url, { headers });
+
+      if (response.ok) {
+        if (attempt > 1) console.log(`[爬蟲] 第 ${attempt} 次嘗試成功`);
+        return await response.text();
+      }
+
+      const retryable = response.status === 403 || response.status === 429 || response.status >= 500;
+      lastError = new Error(`HTTP ${response.status}`);
+      if (!retryable) {
+        console.error(`[爬蟲] HTTP ${response.status}（非暫時性錯誤，不重試）`);
+        break;
+      }
+      console.warn(`[爬蟲] 第 ${attempt}/${MAX_ATTEMPTS} 次失敗：HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[爬蟲] 第 ${attempt}/${MAX_ATTEMPTS} 次失敗：${error.message}`);
+    }
+
+    const delay = RETRY_DELAYS[attempt - 1];
+    if (attempt < MAX_ATTEMPTS && delay) {
+      console.log(`[爬蟲] ${delay / 1000} 秒後重試...`);
+      await sleep(delay);
+    }
+  }
+
+  const failure = new Error(`抓取失敗（共嘗試 ${attempts} 次）: ${lastError.message}`);
+  failure.isFetchFailure = true;
+  throw failure;
+}
+
 /**
  * 抓取 591 租屋列表頁面 HTML，並從 window.__NUXT__ 提取資料
  */
@@ -29,20 +79,12 @@ async function searchRentals() {
   console.log(`[爬蟲] 抓取網址: ${url}`);
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cookie': `urlJumpIp=${region}; urlJumpIpByTxt=${encodeURIComponent(getRegionName(region))}`,
-      },
+    const html = await fetchWithRetry(url, {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Cookie': `urlJumpIp=${region}; urlJumpIpByTxt=${encodeURIComponent(getRegionName(region))}`,
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
     console.log(`[爬蟲] 頁面大小: ${(html.length / 1024).toFixed(1)} KB`);
 
     // 從 HTML 中提取 window.__NUXT__ 的內容
@@ -69,6 +111,9 @@ async function searchRentals() {
       console.error('[爬蟲] cause.code:', error.cause.code);
     }
     console.error('[爬蟲] stack:', error.stack);
+    // 連線層失敗（含重試用盡）往上拋，讓主程式發出 Telegram 警示，避免靜默失敗；
+    // 解析層失敗才回空陣列，因為那多半是 591 改版，重試也沒用。
+    if (error.isFetchFailure) throw error;
     return [];
   }
 }
