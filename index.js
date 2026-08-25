@@ -10,6 +10,7 @@ const { initBot, sendListings, sendStatus } = require('./notifier');
 const { appendListings } = require('./sheets');
 const { filterDuplicates, remember } = require('./dedupe');
 const { enrichListings } = require('./detail');
+const { recordFailure, recordSuccess, ALERT_AFTER } = require('./state');
 
 // === 已發送記錄管理 ===
 
@@ -48,6 +49,14 @@ async function run() {
   try {
     // 1. 抓取物件
     const listings = await searchRentals();
+
+    // 抓取成功即清空連續失敗計數；若先前曾發過警示，要讓使用者知道已恢復，
+    // 否則他只會收到「壞了」而永遠不知道問題何時解決。
+    const { recovered, previousFailures } = recordSuccess();
+    if (recovered) {
+      await sendStatus(`✅ 爬蟲已恢復正常（先前連續失敗 ${previousFailures} 次）`);
+    }
+
     if (!listings || listings.length === 0) {
       console.log('[主程式] 沒有抓到任何物件');
       return;
@@ -93,7 +102,24 @@ async function run() {
     console.log(`[主程式] 本次完成：發送 ${sentCount} 則通知`);
   } catch (error) {
     console.error('[主程式] 執行錯誤:', error);
-    await sendStatus(`❌ 爬蟲執行錯誤: ${error.message}`);
+
+    if (error.isFetchFailure) {
+      // 591 的間歇性封鎖：實測約四輪就有一輪失敗，且下一輪多半自行恢復。
+      // 單次失敗無從處理，逐次通知只是打擾，因此累積到門檻才發警示。
+      const { count, shouldAlert } = recordFailure();
+      console.log(
+        `[主程式] 連續失敗 ${count} 次` +
+        (shouldAlert ? '，發出警示' : `（未達 ${ALERT_AFTER} 次門檻，暫不通知）`)
+      );
+      if (shouldAlert) {
+        await sendStatus(
+          `❌ 爬蟲連續 ${count} 次抓取失敗，可能不只是暫時性封鎖\n最後錯誤：${error.message}`
+        );
+      }
+    } else {
+      // 非連線層的錯誤多為程式或解析問題，不會自行恢復，立即通知
+      await sendStatus(`❌ 爬蟲執行錯誤: ${error.message}`);
+    }
   }
 
   const elapsed = ((Date.now() - startTime.getTime()) / 1000).toFixed(1);

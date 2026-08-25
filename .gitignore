@@ -8,3 +8,4 @@ gcp-*.json
 credentials*.json
 
 .DS_Store
+crawl_state.json
