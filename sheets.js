@@ -134,7 +134,7 @@ function formatRow(item, timestamp) {
     d.carportType || '',
     item.community || '',
     item.address || '',
-    item.areaName || '',
+    item.district || '',
     d.role || '',
     d.chargeText || d.serviceFee || '',
     d.deposit || '',

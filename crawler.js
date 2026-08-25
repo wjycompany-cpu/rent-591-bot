@@ -266,7 +266,9 @@ function formatItem(item) {
     priceUnit: item.price_unit || '元/月',
     kind: item.kind_name || '',
     area: item.area || '',
-    areaName: item.area_name || '',
+    // 591 的 area_name 名稱誤導，內容是「69.4坪」這種坪數字串而非區域名稱；
+    // 區域只出現在 address 的前綴（例如「淡水區-新市三路二段」），需自行取出。
+    district: String(item.address || '').split('-')[0].trim(),
     floor: item.floor_name || '',
     layout: item.layoutStr || '',
     fitment: item.fitment_name || '',
