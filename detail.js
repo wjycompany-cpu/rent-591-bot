@@ -50,19 +50,36 @@ function findKey(root, target, maxDepth = 12) {
 
 /**
  * 由費用結構算出實質月租。
- * 車位標示「另計」但金額為 0 時代表 591 沒揭露價格，
- * 此時回傳的數字是下限，complete 標為 false 以免誤導。
+ *
+ * 591 有兩種「不知道」會讓結果被低估，兩者都必須標示出來：
+ *   1. manage_fee_text 為「無數據」——刊登者沒填管理費，並非沒有管理費
+ *   2. 車位標示另計但 carport_price 為 0 ——沒有揭露車位月租
+ * 這兩種情況下回傳的數字是下限，complete 為 false。
  */
-function calcEffectiveRent(rc) {
+function calcEffectiveRent(rc, hasCarport) {
   const rent = Number(rc.rent_price) || 0;
   const manage = Number(rc.manage_fee) || 0;
   const carportExtra = rc.price_has_carport ? 0 : (Number(rc.carport_price) || 0);
-  const carportUnknown = !rc.price_has_carport && !rc.carport_price;
+
+  const manageUnknown = rc.manage_fee_text === '無數據';
+  const carportUnknown = hasCarport && !rc.price_has_carport && !rc.carport_price;
 
   return {
     effectiveRent: rent + manage + carportExtra,
-    complete: !carportUnknown,
+    complete: !manageUnknown && !carportUnknown,
   };
+}
+
+/**
+ * 車位費用的顯示文字。
+ * 讓「租金 + 管理費 + 車位費 = 實質月租」這個算式在表上看得出來，
+ * 否則使用者會看到實質月租多了兩千卻找不到來源。
+ */
+function carportFeeText(rc, hasCarport) {
+  if (!hasCarport) return '無車位';
+  if (rc.price_has_carport) return '含租金內';
+  if (Number(rc.carport_price) > 0) return rc.carport_price_text || `${rc.carport_price}元/月`;
+  return '無數據';
 }
 
 /**
@@ -84,7 +101,9 @@ async function fetchDetail(id, region) {
   // facility 每筆都有 active 旗標，0 代表「沒有這項設備」，必須濾掉
   const owned = facility.filter((f) => f && f.active === 1).map((f) => f.name);
   const byLabel = Object.fromEntries(desc.filter((d) => d && d.label).map((d) => [d.label, d.value]));
-  const { effectiveRent, complete } = calcEffectiveRent(rc);
+  const carportType = owned.find((n) => /車位/.test(n)) || '';
+  const hasCarport = Boolean(carportType) || rc.price_has_carport || Number(rc.carport_price) > 0;
+  const { effectiveRent, complete } = calcEffectiveRent(rc, hasCarport);
 
   return {
     rentPrice: Number(rc.rent_price) || 0,
@@ -92,7 +111,8 @@ async function fetchDetail(id, region) {
     manageFeeText: rc.manage_fee_text || '',
     carportIncluded: Boolean(rc.price_has_carport),
     carportPriceText: rc.carport_price_text || '',
-    carportType: owned.find((n) => /車位/.test(n)) || '',
+    carportFee: carportFeeText(rc, hasCarport),
+    carportType,
     priceContain: rc.price_contain_text || '',
     serviceFee: rc.service_fee || '',
     deposit: rc.deposit || '',
@@ -158,4 +178,4 @@ async function enrichListings(listings) {
   return { enriched, failed, capped, aborted };
 }
 
-module.exports = { fetchDetail, enrichListings, calcEffectiveRent, MAX_PER_RUN };
+module.exports = { fetchDetail, enrichListings, calcEffectiveRent, carportFeeText, MAX_PER_RUN };

@@ -15,7 +15,7 @@ const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 const HEADER = [
   '標題',
   // 費用：租金 + 管理費 = 實質月租，依算式順序排列
-  '租金', '管理費', '實質月租', '租金含',
+  '租金', '管理費', '車位費', '實質月租', '租金含',
   // 房屋本身
   '坪數', '格局', '樓層', '車位型式',
   // 位置
@@ -89,6 +89,7 @@ function formatRow(item, timestamp) {
     item.title || '',
     item.price ? `${item.price} ${item.priceUnit || ''}`.trim() : '',
     d.manageFeeText || '',
+    d.carportFee || '',
     // 寫成純數字，讓試算表能正確排序與做數值比較。
     // 「車位另計但未揭露金額」可由「租金含」與「車位型式」兩欄判讀。
     d.effectiveRent || '',
