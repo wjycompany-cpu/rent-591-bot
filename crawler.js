@@ -9,6 +9,10 @@ const config = require('./config');
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS = [3000, 8000]; // 第 1、2 次失敗後各等多久（指數退避）
 
+// 分頁上限：591 一頁 30 筆，5 頁 = 150 筆。
+// 設上限是為了避免條件放寬後（例如 total 變成 800）一次打出幾十個請求。
+const MAX_PAGES = 5;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -58,6 +62,40 @@ async function fetchWithRetry(url, headers) {
 /**
  * 抓取 591 租屋列表頁面 HTML，並從 window.__NUXT__ 提取資料
  */
+/**
+ * 印出連線失敗的細節，方便在 Actions log 裡除錯
+ */
+function logFetchError(error) {
+  console.error('[爬蟲] 抓取失敗:', error.message);
+  console.error('[爬蟲] error.name:', error.name);
+  console.error('[爬蟲] error.code:', error.code);
+  if (error.cause) {
+    console.error('[爬蟲] error.cause:', error.cause);
+    console.error('[爬蟲] cause.message:', error.cause.message);
+    console.error('[爬蟲] cause.code:', error.cause.code);
+  }
+  console.error('[爬蟲] stack:', error.stack);
+}
+
+/**
+ * 抓取並解析單一頁。
+ * 連線失敗會往上拋（帶 isFetchFailure）；解析失敗回傳 null。
+ */
+async function fetchPage(url, headers) {
+  const html = await fetchWithRetry(url, headers);
+  console.log(`[爬蟲] 頁面大小: ${(html.length / 1024).toFixed(1)} KB`);
+
+  const nuxtData = extractNuxtData(html);
+  if (!nuxtData) {
+    const hasNuxt = html.includes('__NUXT__');
+    const hasItems = html.includes('items');
+    console.error(`[爬蟲] 無法提取 NUXT 資料 (hasNuxt=${hasNuxt}, hasItems=${hasItems})`);
+    return null;
+  }
+
+  return extractListings(nuxtData);
+}
+
 async function searchRentals() {
   console.log('[爬蟲] 開始抓取 591 租屋資料（Nuxt SSR 模式）...');
 
@@ -75,47 +113,65 @@ async function searchRentals() {
   if (order) params.append('order', order);
   if (orderType) params.append('orderType', orderType);
 
-  const url = `https://rent.591.com.tw/list?${params.toString()}`.replace(/%2C/g, ',');
-  console.log(`[爬蟲] 抓取網址: ${url}`);
+  const baseUrl = `https://rent.591.com.tw/list?${params.toString()}`.replace(/%2C/g, ',');
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cookie': `urlJumpIp=${region}; urlJumpIpByTxt=${encodeURIComponent(getRegionName(region))}`,
+  };
 
-  try {
-    const html = await fetchWithRetry(url, {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Cookie': `urlJumpIp=${region}; urlJumpIpByTxt=${encodeURIComponent(getRegionName(region))}`,
-    });
-    console.log(`[爬蟲] 頁面大小: ${(html.length / 1024).toFixed(1)} KB`);
+  const allListings = [];
+  let pagesToFetch = 1; // 抓完第 1 頁、知道 total 後才會更新
 
-    // 從 HTML 中提取 window.__NUXT__ 的內容
-    const nuxtData = extractNuxtData(html);
-    if (!nuxtData) {
-      const hasNuxt = html.includes('__NUXT__');
-      const hasItems = html.includes('items');
-      console.error(`[爬蟲] 無法提取 NUXT 資料 (hasNuxt=${hasNuxt}, hasItems=${hasItems})`);
-      return [];
+  for (let page = 1; page <= pagesToFetch; page++) {
+    const url = page === 1 ? baseUrl : `${baseUrl}&page=${page}`;
+    console.log(`[爬蟲] 抓取第 ${page} 頁: ${url}`);
+
+    let result;
+    try {
+      result = await fetchPage(url, headers);
+    } catch (error) {
+      logFetchError(error);
+      // 第 1 頁就失敗代表這輪完全沒資料，往上拋讓主程式發 Telegram 警示；
+      // 後續頁失敗則保留已取得的部分，有 30 筆總比 0 筆有用。
+      if (page === 1) {
+        if (error.isFetchFailure) throw error;
+        return [];
+      }
+      console.warn(`[爬蟲] 第 ${page} 頁抓取失敗，保留已取得的 ${allListings.length} 筆`);
+      break;
     }
 
-    // 從 NUXT 資料中找到房屋列表
-    const listings = extractListings(nuxtData);
-    console.log(`[爬蟲] 共取得 ${listings.length} 筆物件`);
-    return listings;
-
-  } catch (error) {
-    console.error('[爬蟲] 抓取失敗:', error.message);
-    console.error('[爬蟲] error.name:', error.name);
-    console.error('[爬蟲] error.code:', error.code);
-    if (error.cause) {
-      console.error('[爬蟲] error.cause:', error.cause);
-      console.error('[爬蟲] cause.message:', error.cause.message);
-      console.error('[爬蟲] cause.code:', error.cause.code);
+    if (!result) {
+      if (page === 1) return [];
+      console.warn(`[爬蟲] 第 ${page} 頁解析失敗，保留已取得的 ${allListings.length} 筆`);
+      break;
     }
-    console.error('[爬蟲] stack:', error.stack);
-    // 連線層失敗（含重試用盡）往上拋，讓主程式發出 Telegram 警示，避免靜默失敗；
-    // 解析層失敗才回空陣列，因為那多半是 591 改版，重試也沒用。
-    if (error.isFetchFailure) throw error;
-    return [];
+
+    allListings.push(...result.listings);
+
+    // 第 1 頁才需要換算總頁數
+    if (page === 1) {
+      const perPage = result.listings.length;
+      if (result.total && perPage > 0) {
+        const needed = Math.ceil(result.total / perPage);
+        pagesToFetch = Math.min(needed, MAX_PAGES);
+        console.log(`[爬蟲] 總物件數 ${result.total}，每頁 ${perPage} 筆，預計抓 ${pagesToFetch} 頁`);
+        if (needed > MAX_PAGES) {
+          console.warn(`[爬蟲] 需 ${needed} 頁但上限為 ${MAX_PAGES} 頁，將略過最舊的 ${result.total - MAX_PAGES * perPage} 筆`);
+        }
+      }
+    }
+
+    // 還有下一頁才需要等，避免請求過於密集
+    if (page < pagesToFetch) {
+      await sleep(config.crawler.requestDelay);
+    }
   }
+
+  console.log(`[爬蟲] 共取得 ${allListings.length} 筆物件`);
+  return allListings;
 }
 
 /**
@@ -163,6 +219,7 @@ function extractNuxtData(html) {
  */
 function extractListings(nuxtData) {
   const allListings = [];
+  let total = null;
 
   if (nuxtData.data) {
     for (const [key, value] of Object.entries(nuxtData.data)) {
@@ -176,7 +233,7 @@ function extractListings(nuxtData) {
       }
 
       if (value?.data?.total !== undefined) {
-        console.log(`[爬蟲] 總物件數: ${value.data.total}`);
+        total = Number(value.data.total);
       }
     }
   }
@@ -195,7 +252,7 @@ function extractListings(nuxtData) {
     }
   }
 
-  return allListings;
+  return { listings: allListings, total };
 }
 
 /**
