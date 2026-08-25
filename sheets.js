@@ -13,9 +13,17 @@ const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 // 表頭；順序必須與 formatRow() 一致。
 // 第 14 欄之後來自詳情頁，抓取失敗時留空。
 const HEADER = [
-  '抓取時間', '物件ID', '標題', '租金', '坪數', '類型',
-  '樓層', '格局', '地區', '地址', '社區', '標籤', '連結',
-  '實質月租', '管理費', '租金含', '車位型式', '出租方', '服務費', '押金', '寵物', '最短租期',
+  '標題',
+  // 費用：租金 + 管理費 = 實質月租，依算式順序排列
+  '租金', '管理費', '實質月租', '租金含',
+  // 房屋本身
+  '坪數', '格局', '樓層', '車位型式',
+  // 位置
+  '社區', '地址', '地區',
+  // 交易條件
+  '出租方', '服務費', '押金', '最短租期', '寵物',
+  // 次要／查核用
+  '類型', '標籤', '連結', '物件ID', '抓取時間',
 ];
 
 // 由欄數推算最後一欄的字母，避免日後增欄時漏改範圍
@@ -76,33 +84,32 @@ function nowString() {
  */
 function formatRow(item, timestamp) {
   const tags = Array.isArray(item.tags) ? item.tags.join(' | ') : '';
-  const d = item.detail || {};
+  const d = item.detail || {};   // 詳情頁抓取失敗時為空物件，相關欄位留白
   return [
-    timestamp,
-    String(item.id ?? ''),
     item.title || '',
     item.price ? `${item.price} ${item.priceUnit || ''}`.trim() : '',
-    item.area ? `${item.area} 坪` : '',
-    item.kind || '',
-    item.floor || '',
-    item.layout || '',
-    item.areaName || '',
-    item.address || '',
-    item.community || '',
-    tags,
-    item.url || '',
-    // 以下來自詳情頁；沒抓到就留空，不影響前 13 欄
-    // 寫成純數字，讓試算表能正確排序與做數值比較。
-    // 「車位另計但未揭露金額」的資訊由「租金含」與「車位型式」兩欄即可判讀。
-    d.effectiveRent || '',
     d.manageFeeText || '',
+    // 寫成純數字，讓試算表能正確排序與做數值比較。
+    // 「車位另計但未揭露金額」可由「租金含」與「車位型式」兩欄判讀。
+    d.effectiveRent || '',
     d.priceContain || '',
+    item.area ? `${item.area} 坪` : '',
+    item.layout || '',
+    item.floor || '',
     d.carportType || '',
+    item.community || '',
+    item.address || '',
+    item.areaName || '',
     d.role || '',
     d.chargeText || d.serviceFee || '',
     d.deposit || '',
-    d.pet || '',
     d.minLease || '',
+    d.pet || '',
+    item.kind || '',
+    tags,
+    item.url || '',
+    String(item.id ?? ''),
+    timestamp,
   ];
 }
 
