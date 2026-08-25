@@ -7,6 +7,7 @@ const fs = require('fs');
 const config = require('./config');
 const { searchRentals } = require('./crawler');
 const { initBot, sendListings, sendStatus } = require('./notifier');
+const { appendListings } = require('./sheets');
 
 // === 已發送記錄管理 ===
 
@@ -66,6 +67,9 @@ async function run() {
 
     // 3. 發送通知
     const sentCount = await sendListings(newListings);
+
+    // 3.5 寫入 Google Sheet（選用；失敗不影響推播）
+    await appendListings(newListings);
 
     // 4. 更新已發送記錄
     newListings.forEach(item => sentRecords.add(String(item.id)));

@@ -1,3 +1,10 @@
 node_modules/
 sent_records.json
 .env
+
+# Google 服務帳號金鑰（絕對不能進 repo）
+service-account*.json
+gcp-*.json
+credentials*.json
+
+.DS_Store

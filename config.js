@@ -16,12 +16,12 @@ module.exports = {
   // === 591 搜尋條件 ===
   search: {
     // 台北市 = 1,新北市 = 3,桃園市 = 6
-    region: 6,
+    region: 3,
     // 區域代碼（可多選，用逗號分隔）
     // 林口區 = 46, 淡水區 = 50, 新莊區 = 44
     // 其他常用：板橋 = 26, 三重 = 43, 中和 = 38, 永和 = 37, 新店 = 34
     // 桃園常用：龜山區 = 74, 蘆竹區 = 79, 
-    section: '74',
+    section: '50',
     // 租金範圍（元）
     rentPrice: '10000,22000',
     // 物件類型：0=不限, 1=整層住家, 2=獨立套房, 3=分租套房, 4=雅房
@@ -35,6 +35,18 @@ module.exports = {
     // 排序：posttime=最新刊登, money=租金, area=坪數
     order: 'posttime',
     orderType: 'desc',
+  },
+
+  // === Google Sheets 寫入（選用）===
+  // 兩個值都設定了才會啟用；沒設定就自動略過，爬蟲照常運作。
+  sheets: {
+    // 服務帳號金鑰 JSON 轉成 base64（避免 private_key 的換行破壞環境變數）
+    //   base64 -i service-account.json | pbcopy
+    credentialsB64: process.env.GOOGLE_SERVICE_ACCOUNT_B64 || '',
+    // 試算表網址中 /d/ 與 /edit 之間那一長串
+    sheetId: process.env.GOOGLE_SHEET_ID || '',
+    // 分頁名稱（Sheet 左下角的頁籤，新建的預設叫「工作表1」）
+    sheetName: process.env.GOOGLE_SHEET_NAME || '工作表1',
   },
 
   // === 爬蟲設定 ===
