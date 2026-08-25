@@ -19,7 +19,7 @@ const HEADER = [
   // 房屋本身
   '坪數', '格局', '樓層', '車位型式',
   // 位置
-  '社區', '地址', '地區',
+  '社區', '地址',
   // 交易條件
   '出租方', '服務費', '押金', '最短租期', '寵物',
   // 次要／查核用
@@ -133,8 +133,9 @@ function formatRow(item, timestamp) {
     item.floor || '',
     d.carportType || '',
     item.community || '',
+    // 地址前綴已含區域（如「淡水區-新市三路二段」），不另立地區欄以免重複。
+    // 需要按區篩選時，對地址做「包含」篩選即可；crawler.js 仍保有 district 欄位。
     item.address || '',
-    item.district || '',
     d.role || '',
     d.chargeText || d.serviceFee || '',
     d.deposit || '',
