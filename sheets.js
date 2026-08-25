@@ -29,6 +29,40 @@ const HEADER = [
 // 由欄數推算最後一欄的字母，避免日後增欄時漏改範圍
 const LAST_COL = String.fromCharCode(64 + HEADER.length);
 
+// 租金上限同步到資料範圍右側的儲存格，供條件式格式參照。
+// 直接把數字寫死在格式規則裡的話，改了 config.js 之後標示就會失準而且不會有人發現。
+const BUDGET_LABEL_CELL = String.fromCharCode(64 + HEADER.length + 1) + '1'; // X1
+const BUDGET_VALUE_CELL = String.fromCharCode(64 + HEADER.length + 2) + '1'; // Y1
+
+/**
+ * 從搜尋條件的租金範圍取出上限，例如 '10000,22000' → 22000
+ */
+function budgetLimit() {
+  const upper = String(config.search.rentPrice || '').split(',')[1];
+  const n = parseInt(upper, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 把租金上限寫進試算表，讓條件式格式能參照到最新值。
+ * 失敗只記 log——這只是輔助資訊，不該影響資料寫入。
+ */
+async function syncBudgetCell(client, sheetName) {
+  const limit = budgetLimit();
+  if (limit === null) return;
+
+  const range = encodeURIComponent(`${sheetName}!${BUDGET_LABEL_CELL}:${BUDGET_VALUE_CELL}`);
+  try {
+    await client.request({
+      url: `${API_BASE}/${config.sheets.sheetId}/values/${range}?valueInputOption=RAW`,
+      method: 'PUT',
+      data: { values: [['租金上限（自動同步自 config.js，請勿手動修改）', limit]] },
+    });
+  } catch (error) {
+    console.warn(`[Sheets] 租金上限同步失敗（不影響寫入）: ${error.message}`);
+  }
+}
+
 let cachedClient = null;
 
 /**
@@ -145,9 +179,18 @@ async function appendListings(listings) {
     console.log('[Sheets] 未設定 GOOGLE_SERVICE_ACCOUNT_B64 / GOOGLE_SHEET_ID，略過寫入');
     return 0;
   }
-  if (!listings || listings.length === 0) return 0;
-
   const sheetName = config.sheets.sheetName;
+
+  // 即使本輪沒有新物件也要同步租金上限。多數執行都是 0 筆新物件，
+  // 若只在寫入時同步，改了 config.js 後可能要等好幾天才生效，
+  // 期間試算表的標示門檻是舊的而且不會有任何提示。
+  try {
+    await syncBudgetCell(await getClient(), sheetName);
+  } catch (error) {
+    console.warn(`[Sheets] 租金上限同步失敗（不影響其餘功能）: ${error.message}`);
+  }
+
+  if (!listings || listings.length === 0) return 0;
 
   try {
     const client = await getClient();
@@ -178,4 +221,4 @@ async function appendListings(listings) {
   }
 }
 
-module.exports = { appendListings, isEnabled, HEADER };
+module.exports = { appendListings, isEnabled, HEADER, budgetLimit, BUDGET_VALUE_CELL };
