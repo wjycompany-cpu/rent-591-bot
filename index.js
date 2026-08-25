@@ -8,6 +8,7 @@ const config = require('./config');
 const { searchRentals } = require('./crawler');
 const { initBot, sendListings, sendStatus } = require('./notifier');
 const { appendListings } = require('./sheets');
+const { filterDuplicates, remember } = require('./dedupe');
 
 // === 已發送記錄管理 ===
 
@@ -27,8 +28,8 @@ function loadSentRecords() {
 
 function saveSentRecords(sentSet) {
   try {
-    // 只保留最近 2000 筆，避免檔案無限成長
-    const records = [...sentSet].slice(-2000);
+    // 每筆物件會記下物件ID與複合鍵兩筆，故上限設為 4000（約等於 2000 個物件）
+    const records = [...sentSet].slice(-4000);
     fs.writeFileSync(config.sentRecordsPath, JSON.stringify(records, null, 2));
   } catch (error) {
     console.error('[記錄] 儲存已發送記錄失敗:', error.message);
@@ -51,14 +52,18 @@ async function run() {
       return;
     }
 
-    // 2. 過濾已發送的
+    // 2. 過濾已發送的，以及同一間房子的重複刊登
     const sentRecords = loadSentRecords();
-    const newListings = listings.filter(item => {
-      const id = String(item.id);
-      return id && !sentRecords.has(id);
-    });
+    const { fresh: newListings, skipped } = filterDuplicates(listings, sentRecords);
 
-    console.log(`[主程式] 新物件: ${newListings.length} 筆 (已發送過: ${listings.length - newListings.length} 筆)`);
+    console.log(`[主程式] 新物件: ${newListings.length} 筆 (略過 ${skipped.length} 筆)`);
+    const reasonCounts = skipped.reduce((acc, { reason }) => {
+      acc[reason] = (acc[reason] || 0) + 1;
+      return acc;
+    }, {});
+    for (const [reason, count] of Object.entries(reasonCounts)) {
+      console.log(`[主程式]   ├ ${reason}: ${count} 筆`);
+    }
 
     if (newListings.length === 0) {
       console.log('[主程式] 沒有新物件，跳過通知');
@@ -71,8 +76,8 @@ async function run() {
     // 3.5 寫入 Google Sheet（選用；失敗不影響推播）
     await appendListings(newListings);
 
-    // 4. 更新已發送記錄
-    newListings.forEach(item => sentRecords.add(String(item.id)));
+    // 4. 更新已發送記錄（物件ID 與複合鍵都要記，才擋得住重新刊登）
+    remember(sentRecords, newListings);
     saveSentRecords(sentRecords);
 
     console.log(`[主程式] 本次完成：發送 ${sentCount} 則通知`);
