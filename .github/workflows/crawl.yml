@@ -7,35 +7,23 @@ on:
 
 jobs:
   crawl:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+    name: 抓取
+    uses: ./.github/workflows/crawl-attempt.yml
+    with:
+      attempt: '1'
+    secrets: inherit
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: 下載已發送記錄與執行狀態
-        uses: actions/cache@v6
-        with:
-          path: |
-            sent_records.json
-            crawl_state.json
-          key: sent-records-${{ github.run_id }}
-          restore-keys: |
-            sent-records-
-
-      - name: 執行爬蟲
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Google Sheets（未設定 secrets 時為空字串，程式會自動略過寫表）
-          GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
-        run: node index.js --once
+  # 591 是以「來源 IP」判定封鎖，同一個 runner 重試無效（實測 11 次被擋的 run，
+  # 三次嘗試全數 403，從未有一次靠重試救回來）。但每個 job 都是全新的 VM、
+  # 換一個公網 IP，所以被擋時換一台 runner 重跑才有機會。
+  #
+  # 只在「列表頁被 403 擋下」時才啟動（index.js 會輸出 blocked=true）；
+  # 解析錯誤之類的問題換 IP 也沒用，不會浪費這次重試。
+  retry:
+    name: 被擋時換一台 runner 再試
+    needs: crawl
+    if: needs.crawl.outputs.blocked == 'true'
+    uses: ./.github/workflows/crawl-attempt.yml
+    with:
+      attempt: '2'
+    secrets: inherit

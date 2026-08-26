@@ -10,7 +10,34 @@ const { initBot, sendListings, sendStatus } = require('./notifier');
 const { appendListings } = require('./sheets');
 const { filterDuplicates, remember } = require('./dedupe');
 const { enrichListings } = require('./detail');
-const { recordFailure, recordSuccess, ALERT_AFTER } = require('./state');
+const { recordFailure, recordSuccess, formatDuration } = require('./state');
+
+/**
+ * 輸出 GitHub Actions 的 annotation，讓失敗在 workflow 摘要頁直接看得見。
+ * 主程式把抓取失敗 catch 掉且不設非零 exit code（單次被擋不算執行失敗），
+ * 因此每個 run 在 Actions UI 上都是綠色的，光看顏色無從得知被擋的頻率。
+ * 本機執行沒有 annotation 可言，直接略過以免多印一行雜訊。
+ */
+function annotate(level, title, message) {
+  if (!process.env.GITHUB_ACTIONS) return;
+  console.log(`::${level} title=${title}::${message.replace(/\n/g, ' ')}`);
+}
+
+/**
+ * 回報 step output，讓 workflow 得知本輪是被 591 擋下的。
+ * 591 以來源 IP 判定封鎖，同一台 runner 重試無效，但換一個 job 就是換一台 VM、
+ * 換一個公網 IP，因此 crawl.yml 會據此決定要不要換一台 runner 再抓一次。
+ */
+function setOutput(name, value) {
+  const file = process.env.GITHUB_OUTPUT;
+  if (!file) return;
+
+  try {
+    fs.appendFileSync(file, `${name}=${value}\n`);
+  } catch (error) {
+    console.error('[主程式] 寫入 GITHUB_OUTPUT 失敗:', error.message);
+  }
+}
 
 // === 已發送記錄管理 ===
 
@@ -52,9 +79,9 @@ async function run() {
 
     // 抓取成功即清空連續失敗計數；若先前曾發過警示，要讓使用者知道已恢復，
     // 否則他只會收到「壞了」而永遠不知道問題何時解決。
-    const { recovered, previousFailures } = recordSuccess();
+    const { recovered, outageMs } = recordSuccess();
     if (recovered) {
-      await sendStatus(`✅ 爬蟲已恢復正常（先前連續失敗 ${previousFailures} 次）`);
+      await sendStatus(`✅ 爬蟲已恢復正常（中斷約 ${formatDuration(outageMs)}）`);
     }
 
     if (!listings || listings.length === 0) {
@@ -104,20 +131,26 @@ async function run() {
     console.error('[主程式] 執行錯誤:', error);
 
     if (error.isFetchFailure) {
-      // 591 的間歇性封鎖：實測約四輪就有一輪失敗，且下一輪多半自行恢復。
-      // 單次失敗無從處理，逐次通知只是打擾，因此累積到門檻才發警示。
-      const { count, shouldAlert } = recordFailure();
+      // 591 的間歇性 IP 封鎖：單輪失敗無從處理，下一輪多半自行恢復，
+      // 且搜尋結果遠少於分頁上限，漏抓只會延後推播而不會遺失物件。
+      // 因此以「多久沒拿到資料」而非「連續失敗幾次」作為警示依據。
+      const { count, outageMs, shouldAlert } = recordFailure();
+      const outage = formatDuration(outageMs);
       console.log(
-        `[主程式] 連續失敗 ${count} 次` +
-        (shouldAlert ? '，發出警示' : `（未達 ${ALERT_AFTER} 次門檻，暫不通知）`)
+        `[主程式] 連續失敗 ${count} 次，已 ${outage} 沒有成功` +
+        (shouldAlert ? '，發出警示' : '（未達門檻，暫不通知）')
       );
+      annotate('warning', '591 抓取失敗', `${error.message}｜連續 ${count} 次，已 ${outage} 沒有成功`);
+      // 只有被擋才值得換 IP 重試；解析錯誤之類的問題換幾台 runner 都一樣。
+      setOutput('blocked', 'true');
       if (shouldAlert) {
         await sendStatus(
-          `❌ 爬蟲連續 ${count} 次抓取失敗，可能不只是暫時性封鎖\n最後錯誤：${error.message}`
+          `❌ 爬蟲已 ${outage} 抓不到任何資料（連續失敗 ${count} 次），可能不只是暫時性封鎖\n最後錯誤：${error.message}`
         );
       }
     } else {
       // 非連線層的錯誤多為程式或解析問題，不會自行恢復，立即通知
+      annotate('error', '爬蟲執行錯誤', error.message);
       await sendStatus(`❌ 爬蟲執行錯誤: ${error.message}`);
     }
   }

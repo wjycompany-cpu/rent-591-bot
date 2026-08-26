@@ -1,0 +1,60 @@
+# 單次抓取。由 crawl.yml 呼叫，可能被呼叫兩次（換一台 runner ＝換一個來源 IP）。
+#
+# 抽成可重用 workflow 而非在 crawl.yml 裡複製兩份步驟，是為了避免日後新增
+# secret 或改 Node 版本時只改到其中一份——兩份步驟一旦漂移，備援那次會用
+# 錯誤的設定執行，而且不會有任何錯誤訊息。
+name: 抓取一次
+
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        description: 第幾次嘗試，用於區隔 cache key
+        required: true
+        type: string
+    outputs:
+      blocked:
+        description: 列表頁被 591 以 403 擋下（值為 'true' 時呼叫端會換一台 runner 重試）
+        value: ${{ jobs.crawl.outputs.blocked }}
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    outputs:
+      blocked: ${{ steps.crawl.outputs.blocked }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      # cache key 帶上 attempt，兩次嘗試才不會共用同一個 key。
+      # 若共用，第 1 次失敗後第 2 次即使成功也存不進去（key 已存在），
+      # 已發送記錄會退回失敗前的狀態，下一輪把剛推播過的物件全部重推一次。
+      # path 維持不變——改動 path 會讓既有快取全部失效（查詢版本由 path 算出）。
+      - name: 下載已發送記錄與執行狀態
+        uses: actions/cache@v6
+        with:
+          path: |
+            sent_records.json
+            crawl_state.json
+          key: sent-records-${{ github.run_id }}-${{ inputs.attempt }}
+          restore-keys: |
+            sent-records-
+
+      - name: 執行爬蟲
+        id: crawl
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Google Sheets（未設定 secrets 時為空字串，程式會自動略過寫表）
+          GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
+        run: node index.js --once

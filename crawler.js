@@ -5,7 +5,10 @@
 const vm = require('vm');
 const config = require('./config');
 
-// 重試設定：591 會間歇性以 403 擋掉資料中心 IP，隔幾秒再試通常就過了
+// 重試設定：只對「真的可能自己好」的狀況重試。
+// 403 刻意不在此列——2026-08-26 抽查 11 次被擋的 run，三次嘗試全數 403，
+// `第 N 次嘗試成功` 出現 0 次。591 是純以來源 IP 判定（本機連 UA 都不帶也回 200），
+// 同一個 runner 在 11 秒內再打兩次結果必然相同，只是白花時間。
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS = [3000, 8000]; // 第 1、2 次失敗後各等多久（指數退避）
 
@@ -17,8 +20,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * 帶重試的抓取；回傳 HTML 字串。
- * 只對「有機會自己好」的狀況重試（403 / 429 / 5xx / 連線錯誤），
- * 4xx 的其他狀況視為永久性錯誤，直接放棄不浪費請求。
+ * 只對「有機會自己好」的狀況重試（429 / 5xx / 連線錯誤）；
+ * 403（IP 封鎖）與其他 4xx 重試同一個 IP 也不會變，直接放棄不浪費請求。
  * 重試用盡會 throw，並標記 isFetchFailure 讓上層知道這是連線層失敗。
  */
 async function fetchWithRetry(url, headers) {
@@ -35,10 +38,13 @@ async function fetchWithRetry(url, headers) {
         return await response.text();
       }
 
-      const retryable = response.status === 403 || response.status === 429 || response.status >= 500;
+      const retryable = response.status === 429 || response.status >= 500;
       lastError = new Error(`HTTP ${response.status}`);
       if (!retryable) {
-        console.error(`[爬蟲] HTTP ${response.status}（非暫時性錯誤，不重試）`);
+        const reason = response.status === 403
+          ? '591 以來源 IP 封鎖，重試同一個 IP 無效'
+          : '非暫時性錯誤';
+        console.error(`[爬蟲] HTTP ${response.status}（${reason}，不重試）`);
         break;
       }
       console.warn(`[爬蟲] 第 ${attempt}/${MAX_ATTEMPTS} 次失敗：HTTP ${response.status}`);
