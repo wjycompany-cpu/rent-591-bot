@@ -78,6 +78,17 @@ function escapeMarkdown(text) {
 }
 
 /**
+ * 推播用的封面圖網址。
+ * 591 的圖片網址以後綴指定尺寸（例如 `…jpg!400x300.jpg`），列表頁給的 400×300
+ * 在手機上偏小，因此換成 750×588。後綴不能拿掉——原圖網址 591 會回 403。
+ */
+function photoUrl(listing) {
+  const photo = String(listing.photo || '');
+  if (!photo.startsWith('http')) return '';
+  return photo.replace(/![^/]*$/, '!750x588.jpg');
+}
+
+/**
  * 發送單一物件通知
  */
 async function sendListing(listing) {
@@ -94,6 +105,20 @@ async function sendListing(listing) {
 
   try {
     const message = formatListing(listing);
+
+    // 優先帶封面圖推播，看一眼就能篩掉不喜歡的房子。
+    // 只傳網址，由 Telegram 伺服器自己去抓圖，不經過 Actions runner，也就不受 591 封鎖 IP 影響。
+    const photo = photoUrl(listing);
+    if (photo) {
+      try {
+        await bot.sendPhoto(chatId, photo, { caption: message, parse_mode: 'MarkdownV2' });
+        return true;
+      } catch (error) {
+        // 圖片失效、說明超過 1024 字上限等狀況，退回文字訊息；少一張圖總比沒通知好
+        console.warn(`[Telegram] 帶圖發送失敗，改送文字 (${listing.id}):`, error.message);
+      }
+    }
+
     await bot.sendMessage(chatId, message, {
       parse_mode: 'MarkdownV2',
       disable_web_page_preview: false,
@@ -164,4 +189,4 @@ async function sendStatus(message) {
 }
 
 // formatListing 一併匯出，讓訊息格式可被測試而不需真的發送
-module.exports = { initBot, sendListing, sendListings, sendStatus, formatListing };
+module.exports = { initBot, sendListing, sendListings, sendStatus, formatListing, photoUrl };
